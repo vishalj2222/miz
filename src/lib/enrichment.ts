@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { createServerClient } from './supabase/server'
 import { COOKS_BUCKET } from './queue'
+import { cookDocument, embed, toVector } from './embedding'
 
 export type Supabase = Awaited<ReturnType<typeof createServerClient>>
 
@@ -17,6 +18,7 @@ export type EnrichResult = {
 export type CookRow = {
   id: string
   note_raw: string
+  cooked_at?: string
   source: string | null
   photo: { storage_path: string }[] | null
 }
@@ -205,4 +207,36 @@ export async function writeEnrichment(
     .update({ extraction, enrichment_status: 'done', dish_id: dishId, tags })
     .eq('id', cook.id)
   if (error) throw error
+
+  // Best-effort: a missing embedding only hides the cook from search until
+  // the sweep's embedMissing() catches it up. Never fails enrichment.
+  try {
+    const [vec] = await embed(
+      [cookDocument({ cooked_at: cook.cooked_at ?? '', note_raw: cook.note_raw, extraction })],
+      'document',
+    )
+    await supabase.from('cook').update({ embedding: toVector(vec) }).eq('id', cook.id)
+  } catch (err) {
+    console.warn(`embed ${cook.id} failed`, err)
+  }
+}
+
+// Embeds the caller's enriched cooks that have no embedding yet (older rows,
+// or ones whose inline embed failed). One Voyage call per batch.
+export async function embedMissing(supabase: Supabase, user: { id: string }, limit = 50): Promise<number> {
+  const { data: cooks } = await supabase
+    .from('cook')
+    .select('id, cooked_at, note_raw, extraction')
+    .eq('owner_id', user.id)
+    .eq('enrichment_status', 'done')
+    .is('embedding', null)
+    .limit(limit)
+  if (!cooks?.length) return 0
+  const vecs = await embed(cooks.map((c) => cookDocument(c)), 'document')
+  let done = 0
+  for (const [i, c] of cooks.entries()) {
+    const { error } = await supabase.from('cook').update({ embedding: toVector(vecs[i]) }).eq('id', c.id)
+    if (!error) done++
+  }
+  return done
 }

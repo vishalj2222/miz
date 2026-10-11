@@ -1,6 +1,6 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { isAllowedEmail } from '@/lib/auth'
-import { enrichCookWith, writeEnrichment, type CookRow, type Supabase } from '@/lib/enrichment'
+import { embedMissing, enrichCookWith, writeEnrichment, type CookRow, type Supabase } from '@/lib/enrichment'
 
 // Enrichment is fire-and-forget from the client; the sweep fits comfortably
 // inside the 60s function budget (2 cooks max).
@@ -42,7 +42,7 @@ export async function POST(req: Request) {
   }
 
   const { cookId } = await req.json().catch(() => ({}))
-  const select = 'id, note_raw, source, photo(storage_path)'
+  const select = 'id, note_raw, cooked_at, source, photo(storage_path)'
 
   if (typeof cookId === 'string') {
     const { data: cook } = await supabase
@@ -69,5 +69,10 @@ export async function POST(req: Request) {
     await enrichCook(supabase, user, cook)
     processed++
   }
-  return Response.json({ processed })
+  // Catch up search embeddings; a Voyage outage must not fail the sweep.
+  const embedded = await embedMissing(supabase, user).catch((err) => {
+    console.warn('embed sweep failed', err)
+    return 0
+  })
+  return Response.json({ processed, embedded })
 }

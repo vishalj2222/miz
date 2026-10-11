@@ -75,9 +75,17 @@ export default async function Home({
       <header className={others.length > 0 ? '' : 'border-b border-hairline pb-5'}>
         <div className="flex items-baseline justify-between">
           <h1 className="font-display text-2xl font-semibold tracking-[-0.03em]">Mise</h1>
-          <p className="font-mono text-[0.7rem] uppercase tracking-[0.16em] text-graphite">
-            {items.length} cooks
-          </p>
+          <div className="flex items-baseline gap-4">
+            <p className="font-mono text-[0.7rem] uppercase tracking-[0.16em] text-graphite">
+              {items.length} cooks
+            </p>
+            <Link
+              href={viewId ? `/search?view=${viewId}` : '/search'}
+              className="font-mono text-[0.7rem] uppercase tracking-[0.16em] text-ink underline decoration-hairline underline-offset-4"
+            >
+              Search
+            </Link>
+          </div>
         </div>
         {others.length > 0 && (
           <nav className="flex gap-1 border-b border-hairline pb-2 mb-4">

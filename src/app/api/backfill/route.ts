@@ -45,7 +45,7 @@ export async function POST(req: Request) {
       if (rpcError) throw rpcError
 
       // Constructed directly — the row was just created by us, no re-fetch needed.
-      const cookObj: CookRow = { id: cookId, note_raw: '', photo: [{ storage_path: path }], source: 'backfill' }
+      const cookObj: CookRow = { id: cookId, note_raw: '', cooked_at: photo.cookedAt, photo: [{ storage_path: path }], source: 'backfill' }
       const extraction = await enrichCookWith(supabase, user, cookObj)
       await writeEnrichment(supabase, user, cookObj, extraction)
       imported++
