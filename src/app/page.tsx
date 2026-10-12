@@ -78,7 +78,7 @@ export default async function Home({
           <h1 className="font-display text-2xl font-semibold tracking-[-0.03em]">Mise</h1>
           <div className="flex items-baseline gap-4">
             <p className="font-mono text-[0.7rem] uppercase tracking-[0.16em] text-graphite">
-              {items.length} cooks
+              {items.length} {items.length === 1 ? 'cook' : 'cooks'}
             </p>
             <Link
               href={viewId ? `/search?view=${viewId}` : '/search'}
