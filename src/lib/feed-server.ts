@@ -4,8 +4,9 @@ import { dishMeta, type FeedItem } from '@/lib/feed'
 
 const SIGNED_URL_SECONDS = 60 * 60 * 24 * 7 // 7 days; refreshed whenever the feed refetches
 
-// One owner's visible cooks, newest first. Backfill rows stay out (they're
-// search-only). With `cuisine`, only cooks whose dish has exactly that cuisine.
+// One owner's cooks (camera-roll imports included), most recently cooked
+// first — imports land at their photo date, not the import date.
+// With `cuisine`, only cooks whose dish has exactly that cuisine.
 export async function fetchItems(
   supabase: Awaited<ReturnType<typeof createServerClient>>,
   ownerId: string,
@@ -16,9 +17,8 @@ export async function fetchItems(
     .from('cook')
     .select(`id, cooked_at, created_at, note_raw, tags, enrichment_status, photo(storage_path), ${dish}`)
     .eq('owner_id', ownerId)
-    .neq('source', 'backfill')
   if (opts?.cuisine) query = query.eq('dish.cuisine', opts.cuisine)
-  const { data: cooks } = await query.order('created_at', { ascending: false })
+  const { data: cooks } = await query.order('cooked_at', { ascending: false })
 
   return Promise.all(
     (cooks ?? []).map(async (c) => {
