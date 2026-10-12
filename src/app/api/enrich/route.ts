@@ -24,6 +24,8 @@ async function enrichCook(
         .from('cook')
         .update({ enrichment_status: 'failed' })
         .eq('id', cook.id)
+        // A concurrent run (save + sweep) may already have labelled it.
+        .neq('enrichment_status', 'done')
     } catch {
       // best-effort: marking failed is the anti-hot-loop, but the sweep
       // re-picks 'queued' rows anyway

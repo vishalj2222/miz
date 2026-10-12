@@ -87,6 +87,18 @@ async function photoToBase64(supabase: Supabase, path: string): Promise<string |
 
 async function deepseekExtract(photoB64: string | null, note: string, context: string): Promise<EnrichResult> {
   const text = note ? `Note: ${note}` : 'No note — classify from the photo alone.'
+  // JSON mode occasionally returns empty content (documented by DeepSeek);
+  // one retry clears it. A second failure throws to the caller.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await deepseekCall(photoB64, text, context)
+    } catch (err) {
+      if (attempt >= 2 || !(err instanceof SyntaxError)) throw err
+    }
+  }
+}
+
+async function deepseekCall(photoB64: string | null, text: string, context: string): Promise<EnrichResult> {
   const res = await fetch('https://api.deepseek.com/chat/completions', {
     method: 'POST',
     headers: {
