@@ -11,7 +11,6 @@
     "icons": "node scripts/gen-icons.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.117.1",
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.112.3",
     "@tanstack/react-query": "^5.101.4",

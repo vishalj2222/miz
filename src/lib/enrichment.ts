@@ -1,4 +1,3 @@
-import Anthropic from '@anthropic-ai/sdk'
 import type { createServerClient } from './supabase/server'
 import { COOKS_BUCKET } from './queue'
 import { cookDocument, embed, toVector } from './embedding'
@@ -23,9 +22,8 @@ export type CookRow = {
   photo: { storage_path: string }[] | null
 }
 
-export function modelForCook(cook: { source: string | null }): 'claude-sonnet-5' | 'claude-haiku-4-5' {
-  return cook.source === 'backfill' ? 'claude-haiku-4-5' : 'claude-sonnet-5'
-}
+// DeepSeek-V4.1-Flash: one cheap model for every cook, photo or not.
+export const ENRICH_MODEL = 'deepseek-flash'
 
 const ENRICH_SCHEMA = {
   type: 'object',
@@ -77,52 +75,18 @@ const ENRICH_SCHEMA = {
 const contextBlock = (context: string) =>
   context ? `\n\nKnown dishes from this cook's own log: ${context}` : ''
 
-const ENRICH_PROMPT = (note: string, context: string) =>
-  `You are classifying a home cook's meal. From the note (and photo), extract the dish. Be specific and honest: 'Singapore black pepper prawns' not 'seafood'. Use the cook's own vocabulary. Unknown values: empty string / empty array, never invented. Also rewrite the note as \`cleaned_note\`: fix dictation errors, restore punctuation, and structure it as bullets when it has multiple points. Note: ${note}${contextBlock(context)}`
-
-const DEEPSEEK_SYSTEM =
-  "You are classifying a home cook's meal. From the note, extract the dish. Be specific and honest: 'Singapore black pepper prawns' not 'seafood'. Use the cook's own vocabulary. Unknown values: empty string / empty array, never invented. Also rewrite the note as `cleaned_note`: fix dictation errors, restore punctuation, and structure it as bullets when it has multiple points. Respond in JSON."
-
-const anthropic = new Anthropic()
+// json_object mode doesn't enforce a schema, so the shape goes in the prompt.
+const ENRICH_SYSTEM = (context: string) =>
+  `You are classifying a home cook's meal. From the photo (if any) and the note, extract the dish. Be specific and honest: 'Singapore black pepper prawns' not 'seafood'. Use the cook's own vocabulary. Unknown values: empty string / empty array, never invented. Also rewrite the note as \`cleaned_note\`: fix dictation errors, restore punctuation, and structure it as bullets when it has multiple points. Respond with a single JSON object matching this JSON schema exactly: ${JSON.stringify(ENRICH_SCHEMA)}${contextBlock(context)}`
 
 async function photoToBase64(supabase: Supabase, path: string): Promise<string | null> {
   const { data, error } = await supabase.storage.from(COOKS_BUCKET).download(path)
-  if (error || !data) return null // download error -> treat as no photo (DeepSeek path)
+  if (error || !data) return null // download error -> treat as no photo (note-only)
   return Buffer.from(await data.arrayBuffer()).toString('base64')
 }
 
-async function claudeExtract(
-  photoB64: string,
-  note: string,
-  context: string,
-  model: string,
-): Promise<EnrichResult> {
-  const msg = await anthropic.messages.create({
-    model,
-    max_tokens: 4096,
-    output_config: {
-      effort: 'low',
-      format: { type: 'json_schema', schema: ENRICH_SCHEMA },
-    },
-    messages: [
-      {
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: photoB64 } },
-          { type: 'text', text: ENRICH_PROMPT(note, context) },
-        ],
-      },
-    ],
-  })
-  if (msg.stop_reason === 'refusal') throw new Error('claude refusal')
-  const text = msg.content
-    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-    .map((b) => b.text)
-    .join('')
-  return JSON.parse(text)
-}
-
-async function deepseekExtract(note: string, context: string): Promise<EnrichResult> {
+async function deepseekExtract(photoB64: string | null, note: string, context: string): Promise<EnrichResult> {
+  const text = note ? `Note: ${note}` : 'No note — classify from the photo alone.'
   const res = await fetch('https://api.deepseek.com/chat/completions', {
     method: 'POST',
     headers: {
@@ -130,21 +94,29 @@ async function deepseekExtract(note: string, context: string): Promise<EnrichRes
       Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
     },
     body: JSON.stringify({
-      model: 'deepseek-v4-flash',
+      model: ENRICH_MODEL,
       messages: [
-        { role: 'system', content: `${DEEPSEEK_SYSTEM}${contextBlock(context)}` },
-        { role: 'user', content: note },
+        { role: 'system', content: ENRICH_SYSTEM(context) },
+        {
+          role: 'user',
+          content: photoB64
+            ? [
+                { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${photoB64}` } },
+                { type: 'text', text },
+              ]
+            : text,
+        },
       ],
       response_format: { type: 'json_object' },
       max_tokens: 2000,
     }),
   })
-  if (!res.ok) throw new Error(`deepseek ${res.status}`)
+  if (!res.ok) throw new Error(`deepseek ${res.status}: ${(await res.text()).slice(0, 200)}`)
   const body = await res.json()
   return JSON.parse(body.choices[0].message.content)
 }
 
-// Owner's dish names as personal context for both prompts. RLS (can_view)
+// Owner's dish names as personal context for the prompt. RLS (can_view)
 // scopes this to rows the caller owns or has a share for; user stays in the
 // signature for the backfill sweep.
 export async function buildContext(supabase: Supabase, user: { id: string }): Promise<string> {
@@ -156,21 +128,18 @@ export async function buildContext(supabase: Supabase, user: { id: string }): Pr
   return (data ?? []).map((d) => d.canonical_name).join(', ')
 }
 
-// Downloads the photo (falls back to the text-only DeepSeek path) and returns
-// the raw parsed model output. Throws on any failure — callers decide.
+// Downloads the photo (if any) and returns the raw parsed model output.
+// Throws on any failure — callers decide.
 export async function enrichCookWith(
   supabase: Supabase,
   user: { id: string },
   cook: CookRow,
-  opts?: { model?: string },
 ): Promise<EnrichResult> {
   const photoPath = cook.photo?.[0]?.storage_path
   const photoB64 = photoPath ? await photoToBase64(supabase, photoPath) : null
   const context = await buildContext(supabase, user)
   // Raw model output goes into extraction as-is — never trimmed or reshaped.
-  return photoB64
-    ? await claudeExtract(photoB64, cook.note_raw, context, opts?.model ?? modelForCook(cook))
-    : await deepseekExtract(cook.note_raw, context)
+  return deepseekExtract(photoB64, cook.note_raw, context)
 }
 
 // Dish match/insert + tags derivation + cook update. Throws on failure.

@@ -17,7 +17,7 @@ A personal-first cooking log PWA. Each person (Sahil, Pierce, Vishal) owns their
 - Next.js (App Router), TypeScript, strict mode
 - Supabase — Postgres, Storage, Auth (magic link, invite-only), Realtime, pgvector
 - Vercel hosting
-- Claude API — **server-side only**, `claude-sonnet-5` for enrichment
+- DeepSeek API — **server-side only**, `deepseek-flash` (vision) for enrichment
 - Voyage AI for embeddings
 - Tailwind
 
