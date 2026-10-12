@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import type { FeedItem } from '@/lib/feed'
+import { isIdentifying, type FeedItem } from '@/lib/feed'
 import { cuisineColor } from '@/lib/cuisine'
 import { CuisineTag } from '@/components/cuisine-tag'
 import { CookDate } from '@/components/cook-date'
@@ -25,11 +25,15 @@ export function CookCard({
         className={cuisine ? 'mt-4 border-l-2 pl-4' : 'mt-4'}
         style={cuisine ? { borderColor: cuisineColor(cuisine) } : undefined}
       >
-        {item.dishName && (
+        {item.dishName ? (
           <h2 className="font-display text-[1.6rem] leading-[1.1] font-medium tracking-[-0.025em]">
             {item.dishName}
           </h2>
-        )}
+        ) : !syncError && isIdentifying(item) ? (
+          <p className="font-mono text-[0.7rem] uppercase tracking-[0.14em] text-graphite">
+            Identifying dish…
+          </p>
+        ) : null}
         <div className="mt-2 flex items-center justify-between gap-4">
           {cuisine && <CuisineTag cuisine={cuisine} />}
           <span className="font-mono text-[0.7rem] text-graphite">

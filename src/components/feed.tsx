@@ -1,18 +1,18 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { flushPending, COOKS_BUCKET } from '@/lib/queue'
 import { db, pendingItems } from '@/lib/db'
 import { CookCard } from './cook-card'
-import { dishMeta, type FeedItem } from '@/lib/feed'
+import { dishMeta, isIdentifying, type FeedItem } from '@/lib/feed'
 
 async function fetchFeed(ownerId: string): Promise<FeedItem[]> {
   const supabase = createClient()
   const { data } = await supabase
     .from('cook')
-    .select('id, cooked_at, created_at, note_raw, tags, photo(storage_path), dish(canonical_name, cuisine)')
+    .select('id, cooked_at, created_at, note_raw, tags, enrichment_status, photo(storage_path), dish(canonical_name, cuisine)')
     .eq('owner_id', ownerId)
     .neq('source', 'backfill')
     .order('created_at', { ascending: false })
@@ -32,10 +32,19 @@ async function fetchFeed(ownerId: string): Promise<FeedItem[]> {
         note: c.note_raw,
         photoUrl,
         tags: c.tags ?? [],
+        enrichmentStatus: c.enrichment_status,
         ...dishMeta(c.dish),
       }
     }),
   )
+}
+
+// Poll while a card is still being identified, so its label lands within
+// seconds. Capped so a stuck row can't poll forever.
+const POLL_FOR_MS = 120_000
+function pollInterval(items: FeedItem[] | undefined, until: number): number | false {
+  if (Date.now() > until) return false
+  return (items ?? []).some((i) => !i.syncError && isIdentifying(i)) ? 4000 : false
 }
 
 export function Feed({
@@ -49,10 +58,16 @@ export function Feed({
 }) {
   const queryClient = useQueryClient()
   const key = ['feed', ownerId]
+  // Set after mount (not during render); 0 means "not yet mounted, don't poll".
+  const pollUntil = useRef(0)
+  useEffect(() => {
+    pollUntil.current = Date.now() + POLL_FOR_MS
+  }, [])
   const { data: items } = useQuery({
     queryKey: key,
     queryFn: () => fetchFeed(ownerId),
     initialData: initialItems,
+    refetchInterval: (query) => (isOwn ? pollInterval(query.state.data, pollUntil.current) : false),
   })
 
   useEffect(() => {
@@ -75,15 +90,12 @@ export function Feed({
         const ids = new Set(old.map((o) => o.id))
         return [...pendingFeed.filter((p) => !ids.has(p.id)), ...old]
       })
-      // Fire-and-forget sweep; the card updates when enrichment lands.
+      // Fire-and-forget sweep; refetchInterval picks up the label when it lands.
       void fetch('/api/enrich', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
       }).catch(() => {})
-      setTimeout(() => {
-        void queryClient.refetchQueries({ queryKey: ['feed', ownerId] })
-      }, 25000)
     }
     void sync()
   }, [queryClient, ownerId, isOwn])

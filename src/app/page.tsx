@@ -15,7 +15,7 @@ async function fetchItems(
 ): Promise<FeedItem[]> {
   let query = supabase
     .from('cook')
-    .select('id, cooked_at, created_at, note_raw, tags, photo(storage_path), dish(canonical_name, cuisine)')
+    .select('id, cooked_at, created_at, note_raw, tags, enrichment_status, photo(storage_path), dish(canonical_name, cuisine)')
   if (ownerId) query = query.eq('owner_id', ownerId)
   query = query.neq('source', 'backfill')
   const { data: cooks } = await query.order('created_at', { ascending: false })
@@ -36,6 +36,7 @@ async function fetchItems(
         note: c.note_raw,
         photoUrl,
         tags: c.tags ?? [],
+        enrichmentStatus: c.enrichment_status,
         ...dishMeta(c.dish),
       }
     }),
