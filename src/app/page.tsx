@@ -38,7 +38,7 @@ export default async function Home({
     <main className="mx-auto min-h-dvh max-w-md bg-paper px-5 pb-12 pt-5">
       <header className={others.length > 0 ? '' : 'border-b border-hairline pb-5'}>
         <div className="flex items-baseline justify-between">
-          <h1 className="text-2xl font-semibold tracking-[-0.03em]">Mise</h1>
+          <h1 className="font-mono text-lg font-medium uppercase tracking-[0.16em]">Mise</h1>
           <div className="flex items-baseline gap-4">
             <p className="font-mono text-[0.7rem] uppercase tracking-[0.16em] text-graphite">
               {items.length} {items.length === 1 ? 'cook' : 'cooks'}
