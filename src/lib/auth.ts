@@ -1,4 +1,5 @@
 import { createServerClient } from '@/lib/supabase/server'
+import { firstNameFromEmail } from '@/lib/names'
 
 const allowed = (process.env.ALLOWED_EMAILS ?? '')
   .split(',')
@@ -17,7 +18,7 @@ export async function ensureProfile(
     await supabase
       .from('profile')
       .upsert(
-        { id: data.user.id, display_name: data.user.email?.split('@')[0] ?? null },
+        { id: data.user.id, display_name: firstNameFromEmail(data.user.email) },
         { onConflict: 'id', ignoreDuplicates: true },
       )
   }

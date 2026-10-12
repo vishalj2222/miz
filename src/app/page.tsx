@@ -30,7 +30,7 @@ export default async function Home({
 
   const items = await fetchItems(supabase, viewId ?? user.id)
 
-  const base = 'font-mono text-[0.7rem] uppercase tracking-[0.14em] px-2 py-1'
+  const base = 'inline-flex min-h-11 items-center px-4 font-mono text-[0.7rem] uppercase tracking-[0.14em]'
   const active = `${base} bg-ink text-paper`
   const idle = `${base} text-graphite hover:text-ink`
 
@@ -52,7 +52,7 @@ export default async function Home({
           </div>
         </div>
         {others.length > 0 && (
-          <nav className="flex gap-1 border-b border-hairline pb-2 mb-4">
+          <nav className="mb-4 flex flex-wrap gap-2 border-b border-hairline pb-3">
             <Link href="/" className={viewId ? idle : active}>
               My log
             </Link>
