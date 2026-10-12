@@ -2,46 +2,9 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createServerClient } from '@/lib/supabase/server'
 import { ensureProfile, isAllowedEmail } from '@/lib/auth'
-import { COOKS_BUCKET } from '@/lib/queue'
 import { Feed } from '@/components/feed'
 import { CaptureButton } from '@/components/capture-button'
-import { dishMeta, type FeedItem } from '@/lib/feed'
-
-const SIGNED_URL_SECONDS = 60 * 60 * 24 * 7 // 7 days; refreshed whenever the feed refetches
-
-async function fetchItems(
-  supabase: Awaited<ReturnType<typeof createServerClient>>,
-  ownerId?: string,
-): Promise<FeedItem[]> {
-  let query = supabase
-    .from('cook')
-    .select('id, cooked_at, created_at, note_raw, tags, enrichment_status, photo(storage_path), dish(canonical_name, cuisine)')
-  if (ownerId) query = query.eq('owner_id', ownerId)
-  query = query.neq('source', 'backfill')
-  const { data: cooks } = await query.order('created_at', { ascending: false })
-
-  return Promise.all(
-    (cooks ?? []).map(async (c) => {
-      const photo = c.photo?.[0]
-      let photoUrl: string | null = null
-      if (photo) {
-        const { data: signed } = await supabase.storage
-          .from(COOKS_BUCKET)
-          .createSignedUrl(photo.storage_path, SIGNED_URL_SECONDS)
-        photoUrl = signed?.signedUrl ?? null
-      }
-      return {
-        id: c.id,
-        cookedAt: c.cooked_at,
-        note: c.note_raw,
-        photoUrl,
-        tags: c.tags ?? [],
-        enrichmentStatus: c.enrichment_status,
-        ...dishMeta(c.dish),
-      }
-    }),
-  )
-}
+import { fetchItems } from '@/lib/feed-server'
 
 export default async function Home({
   searchParams,

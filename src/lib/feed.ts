@@ -23,3 +23,13 @@ export function dishMeta(
 export function isIdentifying(item: FeedItem): boolean {
   return !item.dishName && item.enrichmentStatus !== 'done' && item.enrichmentStatus !== 'failed'
 }
+
+// Distinct cuisines in feed order (newest first), with how many cooks each.
+export function cuisineCounts(items: FeedItem[]): { cuisine: string; count: number }[] {
+  const counts = new Map<string, number>()
+  for (const item of items) {
+    const c = item.cuisine?.trim()
+    if (c) counts.set(c, (counts.get(c) ?? 0) + 1)
+  }
+  return [...counts].map(([cuisine, count]) => ({ cuisine, count }))
+}

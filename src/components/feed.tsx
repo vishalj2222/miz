@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { flushPending, COOKS_BUCKET } from '@/lib/queue'
 import { db, pendingItems } from '@/lib/db'
 import { CookCard } from './cook-card'
+import { CuisineRow } from './cuisine-row'
 import { dishMeta, isIdentifying, type FeedItem } from '@/lib/feed'
 
 async function fetchFeed(ownerId: string): Promise<FeedItem[]> {
@@ -101,20 +102,23 @@ export function Feed({
   }, [queryClient, ownerId, isOwn])
 
   return (
-    <div className="flex flex-col gap-12">
-      {items?.map((item) => (
-        <CookCard
-          key={item.id}
-          item={item}
-          syncError={item.syncError}
-          onDiscard={async (id) => {
-            await db.pendingCooks.delete(id)
-            queryClient.setQueryData<FeedItem[]>(key, (old = []) =>
-              old.filter((f) => f.id !== id),
-            )
-          }}
-        />
-      ))}
-    </div>
+    <>
+      <CuisineRow items={items ?? []} viewId={isOwn ? undefined : ownerId} />
+      <div className="flex flex-col gap-12">
+        {items?.map((item) => (
+          <CookCard
+            key={item.id}
+            item={item}
+            syncError={item.syncError}
+            onDiscard={async (id) => {
+              await db.pendingCooks.delete(id)
+              queryClient.setQueryData<FeedItem[]>(key, (old = []) =>
+                old.filter((f) => f.id !== id),
+              )
+            }}
+          />
+        ))}
+      </div>
+    </>
   )
 }
