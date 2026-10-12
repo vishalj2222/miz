@@ -6,6 +6,7 @@ export interface FeedItem {
   dishName?: string | null
   cuisine?: string | null
   tags?: string[]
+  photoCount?: number
   enrichmentStatus?: string
   syncError?: string
 }
@@ -32,4 +33,11 @@ export function cuisineCounts(items: FeedItem[]): { cuisine: string; count: numb
     if (c) counts.set(c, (counts.get(c) ?? 0) + 1)
   }
   return [...counts].map(([cuisine, count]) => ({ cuisine, count }))
+}
+
+export type PhotoRow = { storage_path: string; is_cover?: boolean | null }
+
+// The cook's main photo: the one flagged is_cover, else any (legacy rows).
+export function coverPhoto<T extends PhotoRow>(photos: T[] | null | undefined): T | undefined {
+  return photos?.find((p) => p.is_cover) ?? photos?.[0]
 }

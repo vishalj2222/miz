@@ -44,7 +44,7 @@ export async function POST(req: Request) {
   }
 
   const { cookId } = await req.json().catch(() => ({}))
-  const select = 'id, note_raw, cooked_at, source, photo(storage_path)'
+  const select = 'id, note_raw, cooked_at, source, photo(storage_path, is_cover)'
 
   if (typeof cookId === 'string') {
     const { data: cook } = await supabase

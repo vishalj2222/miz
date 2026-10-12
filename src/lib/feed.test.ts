@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cuisineCounts, type FeedItem } from './feed'
+import { coverPhoto, cuisineCounts, type FeedItem } from './feed'
 
 const item = (id: string, cuisine?: string | null): FeedItem => ({
   id,
@@ -23,5 +23,19 @@ describe('cuisineCounts', () => {
     expect(cuisineCounts([item('1'), item('2', null), item('3', ' '), item('4', 'Italian')])).toEqual([
       { cuisine: 'Italian', count: 1 },
     ])
+  })
+})
+
+describe('coverPhoto', () => {
+  it('prefers the photo flagged as cover', () => {
+    const photos = [
+      { storage_path: 'a', is_cover: false },
+      { storage_path: 'b', is_cover: true },
+    ]
+    expect(coverPhoto(photos)?.storage_path).toBe('b')
+  })
+  it('falls back to the first photo, and handles none', () => {
+    expect(coverPhoto([{ storage_path: 'a' }])?.storage_path).toBe('a')
+    expect(coverPhoto(null)).toBeUndefined()
   })
 })

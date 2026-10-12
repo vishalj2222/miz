@@ -6,7 +6,9 @@ import { COOKS_BUCKET } from '@/lib/queue'
 import { CookDate } from '@/components/cook-date'
 import { CuisineTag } from '@/components/cuisine-tag'
 import { NoteEditor } from '@/components/note-editor'
-import { dishMeta } from '@/lib/feed'
+import { coverPhoto, dishMeta } from '@/lib/feed'
+import { PhotoAdder } from '@/components/photo-adder'
+import { PhotoActions } from '@/components/photo-actions'
 
 const SIGNED_URL_SECONDS = 60 * 60 * 24 * 7 // 7 days; refreshed whenever the feed refetches
 
@@ -20,7 +22,7 @@ export default async function CookPage({ params }: { params: Promise<{ id: strin
   const { data: cook } = await supabase
     .from('cook')
     .select(
-      'id, cooked_at, owner_id, enrichment_status, note_raw, tags, extraction, photo(storage_path), dish(canonical_name, cuisine)',
+      'id, cooked_at, owner_id, enrichment_status, note_raw, tags, extraction, photo(id, storage_path, is_cover, taken_at, created_at), dish(canonical_name, cuisine)',
     )
     .eq('id', id)
     .maybeSingle()
@@ -38,14 +40,20 @@ export default async function CookPage({ params }: { params: Promise<{ id: strin
     cook.enrichment_status === 'queued' ? cook.note_raw : cleanedNote ?? cook.note_raw
 
   const { dishName, cuisine } = dishMeta(cook.dish)
-  const photo = cook.photo?.[0]
-  let photoUrl: string | null = null
-  if (photo) {
-    const { data: signed } = await supabase.storage
-      .from(COOKS_BUCKET)
-      .createSignedUrl(photo.storage_path, SIGNED_URL_SECONDS)
-    photoUrl = signed?.signedUrl ?? null
-  }
+  type Photo = { id: string; storage_path: string; is_cover: boolean; taken_at: string | null; created_at: string }
+  const photos = (cook.photo ?? []) as Photo[]
+  const cover = coverPhoto(photos)
+  // Process shots in the order they were taken (upload order as fallback).
+  const process = photos
+    .filter((p) => p !== cover)
+    .sort((a, b) => (a.taken_at ?? a.created_at).localeCompare(b.taken_at ?? b.created_at))
+  const { data: signedRows } = photos.length
+    ? await supabase.storage
+        .from(COOKS_BUCKET)
+        .createSignedUrls(photos.map((p) => p.storage_path), SIGNED_URL_SECONDS)
+    : { data: [] }
+  const urlFor = new Map((signedRows ?? []).map((r) => [r.path, r.signedUrl]))
+  const photoUrl = cover ? urlFor.get(cover.storage_path) ?? null : null
 
   return (
     <main className="mx-auto min-h-dvh max-w-md bg-paper px-5 pb-12 pt-5">
@@ -91,7 +99,27 @@ export default async function CookPage({ params }: { params: Promise<{ id: strin
           Techniques: {cook.extraction.techniques.join(', ')}
         </p>
       ) : null}
-      {isOwner && <NoteEditor cookId={cook.id} initialNote={cook.note_raw} />}
+      {process.length > 0 && (
+        <section className="mt-10 border-t border-hairline pt-5">
+          <h2 className="font-mono text-[0.7rem] uppercase tracking-[0.16em] text-graphite">
+            Process · {process.length}
+          </h2>
+          <div className="mt-4 flex flex-col gap-6">
+            {process.map((p) => (
+              <figure key={p.id}>
+                <div className="overflow-hidden bg-hairline">
+                  <img src={urlFor.get(p.storage_path) ?? undefined} alt="" className="w-full object-cover" />
+                </div>
+                {isOwner && <PhotoActions photoId={p.id} storagePath={p.storage_path} />}
+              </figure>
+            ))}
+          </div>
+        </section>
+      )}
+      {isOwner && <PhotoAdder cookId={cook.id} ownerId={cook.owner_id} />}
+      <div className="mt-6">
+        {isOwner && <NoteEditor cookId={cook.id} initialNote={cook.note_raw} />}
+      </div>
     </main>
   )
 }

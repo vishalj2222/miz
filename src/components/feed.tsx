@@ -7,18 +7,18 @@ import { flushPending, COOKS_BUCKET } from '@/lib/queue'
 import { db, pendingItems } from '@/lib/db'
 import { CookCard } from './cook-card'
 import { CuisineRow } from './cuisine-row'
-import { dishMeta, isIdentifying, type FeedItem } from '@/lib/feed'
+import { coverPhoto, dishMeta, isIdentifying, type FeedItem } from '@/lib/feed'
 
 async function fetchFeed(ownerId: string): Promise<FeedItem[]> {
   const supabase = createClient()
   const { data } = await supabase
     .from('cook')
-    .select('id, cooked_at, created_at, note_raw, tags, enrichment_status, photo(storage_path), dish(canonical_name, cuisine)')
+    .select('id, cooked_at, created_at, note_raw, tags, enrichment_status, photo(storage_path, is_cover), dish(canonical_name, cuisine)')
     .eq('owner_id', ownerId)
     .order('cooked_at', { ascending: false })
   return Promise.all(
     (data ?? []).map(async (c): Promise<FeedItem> => {
-      const photo = c.photo?.[0]
+      const photo = coverPhoto(c.photo)
       let photoUrl: string | null = null
       if (photo) {
         const { data: signed } = await supabase.storage
@@ -32,6 +32,7 @@ async function fetchFeed(ownerId: string): Promise<FeedItem[]> {
         note: c.note_raw,
         photoUrl,
         tags: c.tags ?? [],
+        photoCount: c.photo?.length ?? 0,
         enrichmentStatus: c.enrichment_status,
         ...dishMeta(c.dish),
       }

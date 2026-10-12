@@ -4,7 +4,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { ensureProfile, isAllowedEmail } from '@/lib/auth'
 import { COOKS_BUCKET } from '@/lib/queue'
 import { embed, toVector } from '@/lib/embedding'
-import { dishMeta } from '@/lib/feed'
+import { coverPhoto, dishMeta } from '@/lib/feed'
 import { CookDate } from '@/components/cook-date'
 import { CuisineTag } from '@/components/cuisine-tag'
 
@@ -53,7 +53,7 @@ export default async function SearchPage({
       if (ids.length) {
         const { data: cooks } = await supabase
           .from('cook')
-          .select('id, cooked_at, note_raw, extraction, photo(storage_path), dish(canonical_name, cuisine)')
+          .select('id, cooked_at, note_raw, extraction, photo(storage_path, is_cover), dish(canonical_name, cuisine)')
           .in('id', ids)
         const byId = new Map((cooks ?? []).map((c) => [c.id, c]))
         results = await Promise.all(
@@ -61,7 +61,7 @@ export default async function SearchPage({
             .map((id) => byId.get(id))
             .filter((c) => c != null)
             .map(async (c): Promise<Result> => {
-              const photo = c.photo?.[0]
+              const photo = coverPhoto(c.photo)
               let photoUrl: string | null = null
               if (photo) {
                 const { data: signed } = await supabase.storage

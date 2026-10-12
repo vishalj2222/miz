@@ -1,6 +1,6 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { COOKS_BUCKET } from '@/lib/queue'
-import { dishMeta, type FeedItem } from '@/lib/feed'
+import { coverPhoto, dishMeta, type FeedItem } from '@/lib/feed'
 
 const SIGNED_URL_SECONDS = 60 * 60 * 24 * 7 // 7 days; refreshed whenever the feed refetches
 
@@ -15,14 +15,14 @@ export async function fetchItems(
   const dish = opts?.cuisine ? 'dish!inner(canonical_name, cuisine)' : 'dish(canonical_name, cuisine)'
   let query = supabase
     .from('cook')
-    .select(`id, cooked_at, created_at, note_raw, tags, enrichment_status, photo(storage_path), ${dish}`)
+    .select(`id, cooked_at, created_at, note_raw, tags, enrichment_status, photo(storage_path, is_cover), ${dish}`)
     .eq('owner_id', ownerId)
   if (opts?.cuisine) query = query.eq('dish.cuisine', opts.cuisine)
   const { data: cooks } = await query.order('cooked_at', { ascending: false })
 
   return Promise.all(
     (cooks ?? []).map(async (c) => {
-      const photo = c.photo?.[0]
+      const photo = coverPhoto(c.photo)
       let photoUrl: string | null = null
       if (photo) {
         const { data: signed } = await supabase.storage
@@ -36,6 +36,7 @@ export async function fetchItems(
         note: c.note_raw,
         photoUrl,
         tags: c.tags ?? [],
+        photoCount: c.photo?.length ?? 0,
         enrichmentStatus: c.enrichment_status,
         ...dishMeta(c.dish),
       }

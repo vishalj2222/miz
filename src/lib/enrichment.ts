@@ -1,6 +1,7 @@
 import type { createServerClient } from './supabase/server'
 import { COOKS_BUCKET } from './queue'
 import { cookDocument, embed, toVector } from './embedding'
+import { coverPhoto } from './feed'
 
 export type Supabase = Awaited<ReturnType<typeof createServerClient>>
 
@@ -19,7 +20,7 @@ export type CookRow = {
   note_raw: string
   cooked_at?: string
   source: string | null
-  photo: { storage_path: string }[] | null
+  photo: { storage_path: string; is_cover?: boolean | null }[] | null
 }
 
 // DeepSeek-V4.1-Flash: one cheap model for every cook, photo or not.
@@ -147,7 +148,7 @@ export async function enrichCookWith(
   user: { id: string },
   cook: CookRow,
 ): Promise<EnrichResult> {
-  const photoPath = cook.photo?.[0]?.storage_path
+  const photoPath = coverPhoto(cook.photo)?.storage_path
   const photoB64 = photoPath ? await photoToBase64(supabase, photoPath) : null
   const context = await buildContext(supabase, user)
   // Raw model output goes into extraction as-is — never trimmed or reshaped.

@@ -37,6 +37,7 @@ export function CookCard({
         <div className="mt-2 flex items-center justify-between gap-4">
           {cuisine && <CuisineTag cuisine={cuisine} />}
           <span className="font-mono text-[0.7rem] text-graphite">
+            {item.photoCount && item.photoCount > 1 ? `+${item.photoCount - 1} · ` : ''}
             <CookDate iso={item.cookedAt} />
           </span>
         </div>
