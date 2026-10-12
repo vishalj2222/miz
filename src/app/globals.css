@@ -14,3 +14,25 @@ body {
   background: var(--color-paper);
   color: var(--color-ink);
 }
+
+/* Native feel in the installed app. */
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent; /* no grey flash on tap */
+  touch-action: manipulation; /* no double-tap zoom delay */
+}
+/* Controls shouldn't select text or pop link previews on long-press;
+   notes and other prose stay selectable. */
+a,
+button,
+label,
+nav {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+/* Press feedback, like a native button. Not motion: no transition. */
+a:active,
+button:active:not(:disabled) {
+  opacity: 0.6;
+}
