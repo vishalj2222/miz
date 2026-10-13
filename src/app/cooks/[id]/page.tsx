@@ -9,6 +9,7 @@ import { NoteEditor } from '@/components/note-editor'
 import { coverPhoto, dishMeta } from '@/lib/feed'
 import { PhotoAdder } from '@/components/photo-adder'
 import { PhotoActions } from '@/components/photo-actions'
+import { PhotoCaption } from '@/components/photo-caption'
 
 const SIGNED_URL_SECONDS = 60 * 60 * 24 * 7 // 7 days; refreshed whenever the feed refetches
 
@@ -22,7 +23,7 @@ export default async function CookPage({ params }: { params: Promise<{ id: strin
   const { data: cook } = await supabase
     .from('cook')
     .select(
-      'id, cooked_at, owner_id, enrichment_status, note_raw, tags, extraction, photo(id, storage_path, is_cover, taken_at, created_at), dish(canonical_name, cuisine)',
+      'id, cooked_at, owner_id, enrichment_status, note_raw, tags, extraction, photo(id, storage_path, is_cover, caption, taken_at, created_at), dish(canonical_name, cuisine)',
     )
     .eq('id', id)
     .maybeSingle()
@@ -40,7 +41,7 @@ export default async function CookPage({ params }: { params: Promise<{ id: strin
     cook.enrichment_status === 'queued' ? cook.note_raw : cleanedNote ?? cook.note_raw
 
   const { dishName, cuisine } = dishMeta(cook.dish)
-  type Photo = { id: string; storage_path: string; is_cover: boolean; taken_at: string | null; created_at: string }
+  type Photo = { id: string; storage_path: string; is_cover: boolean; caption: string; taken_at: string | null; created_at: string }
   const photos = (cook.photo ?? []) as Photo[]
   const cover = coverPhoto(photos)
   // Process shots in the order they were taken (upload order as fallback).
@@ -110,6 +111,7 @@ export default async function CookPage({ params }: { params: Promise<{ id: strin
                 <div className="overflow-hidden bg-hairline">
                   <img src={urlFor.get(p.storage_path) ?? undefined} alt="" className="w-full object-cover" />
                 </div>
+                <PhotoCaption photoId={p.id} cookId={cook.id} initial={p.caption ?? ''} editable={isOwner} />
                 {isOwner && <PhotoActions photoId={p.id} storagePath={p.storage_path} />}
               </figure>
             ))}

@@ -1,6 +1,6 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { isAllowedEmail } from '@/lib/auth'
-import { embedMissing, enrichCookWith, writeEnrichment, type CookRow, type Supabase } from '@/lib/enrichment'
+import { COOK_PHOTO_SELECT, embedMissing, enrichCookWith, writeEnrichment, type CookRow, type Supabase } from '@/lib/enrichment'
 
 // Enrichment is fire-and-forget from the client; the sweep fits comfortably
 // inside the 60s function budget (2 cooks max).
@@ -44,7 +44,7 @@ export async function POST(req: Request) {
   }
 
   const { cookId } = await req.json().catch(() => ({}))
-  const select = 'id, note_raw, cooked_at, source, photo(storage_path, is_cover)'
+  const select = `id, note_raw, cooked_at, source, ${COOK_PHOTO_SELECT}`
 
   if (typeof cookId === 'string') {
     const { data: cook } = await supabase

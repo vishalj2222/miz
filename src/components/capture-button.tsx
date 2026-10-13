@@ -2,19 +2,20 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 import exifr from 'exifr'
 import { createDraft } from '@/lib/db'
-import { runBackfill } from '@/lib/backfill-client'
+import { runImport } from '@/lib/import-client'
 
-export function CaptureButton() {
+export function CaptureButton({ ownerId }: { ownerId: string }) {
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const libraryInputRef = useRef<HTMLInputElement>(null)
-  const backfillInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [error, setError] = useState(false)
   const [open, setOpen] = useState(false)
   const [visible, setVisible] = useState(true)
-  const [backfillError, setBackfillError] = useState<string | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
   const [progress, setProgress] = useState<string | null>(null)
 
   // Scroll-aware FAB: fade out while scrolling, back ~250ms after it stops.
@@ -60,29 +61,30 @@ export function CaptureButton() {
     }
   }
 
+  // One photo: the normal capture screen, with a note. Several: grouped into
+  // cooks by when they were taken and imported straight to the feed.
   function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    e.target.value = '' // allow re-selecting the same photo
-    if (!file) return
-    void start(file)
-  }
-
-  async function onBackfill(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? [])
     e.target.value = '' // allow re-selecting the same photos
-    if (files.length === 0) return
+    if (files.length === 1) void start(files[0])
+    else if (files.length > 1) void importMany(files)
+  }
+
+  async function importMany(files: File[]) {
     setOpen(false)
-    setBackfillError(null)
-    setProgress('Backfilled 0/0…')
+    setImportError(null)
+    setProgress(`Preparing ${files.length} photos…`)
     try {
-      const imported = await runBackfill(files, (done, total) =>
-        setProgress(`Backfilled ${done}/${total}…`),
-      )
-      setProgress(`Imported ${imported} photos`)
+      const imported = await runImport(files, ownerId, (done, total) => {
+        setProgress(`Adding cooks ${done}/${total}…`)
+        // Each cook appears on the feed as soon as it's labelled.
+        void queryClient.invalidateQueries({ queryKey: ['feed', ownerId] })
+      })
+      setProgress(`Added ${imported} ${imported === 1 ? 'cook' : 'cooks'}`)
       setTimeout(() => setProgress(null), 4000)
     } catch {
       setProgress(null)
-      setBackfillError("Couldn't import those photos — try again")
+      setImportError("Couldn't add those photos — try again")
     }
   }
 
@@ -114,12 +116,9 @@ export function CaptureButton() {
             >
               Upload
             </button>
-            <button
-              onClick={() => backfillInputRef.current?.click()}
-              className="h-12 border border-ink text-lg text-ink"
-            >
-              Backfill
-            </button>
+            <p className="px-1 font-mono text-[0.6rem] leading-snug text-graphite">
+              Pick several to add a whole cook or past cooks
+            </p>
           </div>
         </>
       )}
@@ -145,25 +144,18 @@ export function CaptureButton() {
         ref={libraryInputRef}
         type="file"
         accept="image/*"
-        className="hidden"
-        onChange={onFile}
-      />
-      <input
-        ref={backfillInputRef}
-        type="file"
-        accept="image/*"
         multiple
         className="hidden"
-        onChange={onBackfill}
+        onChange={onFile}
       />
       {progress && (
         <p className="absolute right-0 bottom-20 font-mono text-[0.7rem] text-graphite">
           {progress}
         </p>
       )}
-      {backfillError && (
+      {importError && (
         <p className="absolute right-0 bottom-20 font-mono text-[0.7rem] text-graphite">
-          {backfillError}
+          {importError}
         </p>
       )}
     </div>

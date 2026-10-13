@@ -24,6 +24,7 @@ export function cookDocument(cook: {
   cooked_at: string
   note_raw: string
   extraction: Extraction | null
+  captions?: string[]
 }): string {
   const x = cook.extraction ?? {}
   const d = new Date(cook.cooked_at)
@@ -33,6 +34,7 @@ export function cookDocument(cook: {
     x.ingredients?.length ? `Ingredients: ${x.ingredients.map((i) => i?.name).filter(Boolean).join(', ')}` : '',
     x.techniques?.length ? `Techniques: ${x.techniques.join(', ')}` : '',
     x.cleaned_note || cook.note_raw,
+    cook.captions?.length ? `Process: ${cook.captions.join('; ')}` : '',
     Number.isNaN(d.getTime())
       ? ''
       : `Cooked in ${SEASONS[d.getUTCMonth()]}, ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`,

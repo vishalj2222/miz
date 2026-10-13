@@ -24,3 +24,26 @@ export function cuisineColor(cuisine: string): string {
   const hue = cuisineHue[cuisine] ?? hash(cuisine) % 360
   return `hsl(${hue} 58% 44%)`
 }
+
+const words = (s: string) => s.toLowerCase().split(/[\s-]+/).filter(Boolean)
+
+/**
+ * Folds a regional variant into a cuisine already in use, so the cuisine boxes
+ * don't split: "Southern Italian" or "Italian-American" → "Italian" when
+ * "Italian" exists. Matches whole words only; the earliest match wins.
+ */
+export function mergeCuisine(cuisine: string, known: string[]): string {
+  const target = words(cuisine)
+  let best: { name: string; at: number } | null = null
+  for (const k of known) {
+    const kw = words(k)
+    if (kw.length === 0 || kw.length >= target.length) continue
+    for (let i = 0; i + kw.length <= target.length; i++) {
+      if (kw.every((w, j) => target[i + j] === w)) {
+        if (!best || i < best.at) best = { name: k, at: i }
+        break
+      }
+    }
+  }
+  return best?.name ?? cuisine
+}

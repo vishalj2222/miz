@@ -69,7 +69,7 @@ export default async function Home({
         )}
       </header>
       <Feed initialItems={items} ownerId={viewId ?? user.id} isOwn={!viewId} />
-      {!viewId && <CaptureButton />}
+      {!viewId && <CaptureButton ownerId={user.id} />}
     </main>
   )
 }

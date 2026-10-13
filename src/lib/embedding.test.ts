@@ -29,6 +29,13 @@ describe('cookDocument', () => {
     expect(doc).toBe('just soup\nCooked in winter, December 2025')
   })
 
+  it('includes process photo captions', () => {
+    const doc = cookDocument({
+      cooked_at: 'bad', note_raw: 'ragu', extraction: {}, captions: ['searing at high heat', 'deglazing'],
+    })
+    expect(doc).toBe('ragu\nProcess: searing at high heat; deglazing')
+  })
+
   it('handles a null extraction', () => {
     expect(cookDocument({ cooked_at: 'bad', note_raw: '', extraction: null })).toBe('')
   })

@@ -4,7 +4,7 @@ import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { COOKS_BUCKET } from '@/lib/queue'
-import { preparePhoto } from '@/lib/photo-client'
+import { preparePhoto, requeueEnrichment } from '@/lib/photo-client'
 
 // Adds process shots to an existing cook. Not the capture path, so it uploads
 // directly rather than via the offline queue; previews show instantly.
@@ -40,6 +40,8 @@ export function PhotoAdder({ cookId, ownerId }: { cookId: string; ownerId: strin
         failed++
       }
     }
+    // New process shots can reveal techniques — re-label with them.
+    if (failed < files.length) await requeueEnrichment(supabase, cookId)
     if (failed) setError(`${failed} photo${failed === 1 ? '' : 's'} didn't upload — try again`)
     router.refresh()
     setPreviews([])
