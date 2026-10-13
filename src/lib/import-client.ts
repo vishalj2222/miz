@@ -12,7 +12,16 @@ export async function runImport(
   onProgress: (done: number, total: number) => void,
 ): Promise<number> {
   const supabase = createClient()
-  const prepared = await Promise.all(files.map(async (file) => ({ file, ...(await preparePhoto(file)) })))
+  // One at a time: shrinking several full-size photos at once can exhaust
+  // iOS memory and freeze the page.
+  const prepared: { file: File; blob: Blob; takenAt: string | null }[] = []
+  for (const file of files) {
+    try {
+      prepared.push({ file, ...(await preparePhoto(file)) })
+    } catch (err) {
+      console.warn('prepare photo failed', err)
+    }
+  }
   const groups = groupIntoCooks(prepared)
   let imported = 0
   onProgress(0, groups.length)
