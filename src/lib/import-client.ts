@@ -28,6 +28,12 @@ export async function runImport(
         p_source: 'backfill',
       })
       if (rpcError) throw rpcError
+      // The last shot is only a placeholder main photo; enrichment picks the
+      // finished dish from the whole set.
+      if (group.length > 1) {
+        const { error } = await supabase.from('cook').update({ cover_auto: true }).eq('id', cookId)
+        if (error) throw error
+      }
       const rows = await Promise.all(
         group.map(async (p) => {
           const id = crypto.randomUUID()

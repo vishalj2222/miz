@@ -14,9 +14,9 @@ async function enrichCook(
   cook: CookRow,
 ): Promise<string | null> {
   try {
-    const extraction = await enrichCookWith(supabase, user, cook)
-    await writeEnrichment(supabase, user, cook, extraction)
-    return String(extraction.dish_name ?? '').trim()
+    const enrichment = await enrichCookWith(supabase, user, cook)
+    await writeEnrichment(supabase, user, cook, enrichment)
+    return String(enrichment.extraction.dish_name ?? '').trim()
   } catch (err) {
     console.warn(`enrich ${cook.id} failed`, err)
     try {
@@ -44,7 +44,7 @@ export async function POST(req: Request) {
   }
 
   const { cookId } = await req.json().catch(() => ({}))
-  const select = `id, note_raw, cooked_at, source, ${COOK_PHOTO_SELECT}`
+  const select = `id, note_raw, cooked_at, source, cover_auto, ${COOK_PHOTO_SELECT}`
 
   if (typeof cookId === 'string') {
     const { data: cook } = await supabase

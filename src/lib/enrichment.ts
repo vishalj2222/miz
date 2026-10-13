@@ -3,6 +3,7 @@ import { COOKS_BUCKET } from './queue'
 import { cookDocument, embed, toVector } from './embedding'
 import { coverPhoto } from './feed'
 import { mergeCuisine } from './cuisine'
+import { chooseMain, sampleForChoice, timingLabel, type Confidence } from './main-photo'
 
 export type Supabase = Awaited<ReturnType<typeof createServerClient>>
 
@@ -12,8 +13,10 @@ export type EnrichResult = {
   sub_region: string
   ingredients: { name: string; amount: string }[]
   techniques: string[]
-  confidence: { dish_name: 'high' | 'medium' | 'low'; cuisine: 'high' | 'medium' | 'low' }
+  confidence: { dish_name: Confidence; cuisine: Confidence; main_photo?: Confidence }
   cleaned_note: string
+  // Only asked for when choosing an imported cook's main photo (1-based).
+  main_photo?: number
 }
 
 export type CookRow = {
@@ -21,6 +24,7 @@ export type CookRow = {
   note_raw: string
   cooked_at?: string
   source: string | null
+  cover_auto?: boolean | null
   photo: CookPhoto[] | null
 }
 
@@ -38,6 +42,7 @@ export const COOK_PHOTO_SELECT = 'photo(storage_path, is_cover, caption, taken_a
 // Main shot first, then process shots in the order they were taken. Vision
 // cost grows per image, so a long process series is capped.
 const MAX_IMAGES = 5
+const MAX_IMAGES_CHOOSING = 8
 export function orderedPhotos(photos: CookPhoto[] | null): CookPhoto[] {
   const cover = coverPhoto(photos)
   if (!cover) return []
@@ -95,7 +100,13 @@ const ENRICH_SCHEMA = {
       properties: {
         dish_name: { type: 'string', enum: ['high', 'medium', 'low'] },
         cuisine: { type: 'string', enum: ['high', 'medium', 'low'] },
+        main_photo: { type: 'string', enum: ['high', 'medium', 'low'] },
       },
+    },
+    main_photo: {
+      type: 'integer',
+      description:
+        'Only when asked to choose the main photo: the number of the photo showing the finished, plated dish.',
     },
   },
 }
@@ -110,7 +121,7 @@ const cuisineBlock = (cuisines: string[]) =>
 
 // json_object mode doesn't enforce a schema, so the shape goes in the prompt.
 const ENRICH_SYSTEM = (context: string, cuisines: string[]) =>
-  `You are classifying a home cook's meal. From the photos (if any) and the note, extract the dish. The first photo is the finished dish; any further photos are process shots taken while cooking, in order, possibly with the cook's captions — use them to identify techniques and ingredients. Be specific and honest: 'Singapore black pepper prawns' not 'seafood'. Use the cook's own vocabulary. \`cuisine\` is the broad national or regional cuisine ('Italian', 'Japanese', 'Middle Eastern'); put anything narrower ('Sicilian', 'Italian-American') in \`sub_region\`. Unknown values: empty string / empty array, never invented. Also rewrite the note as \`cleaned_note\`: fix dictation errors, restore punctuation, and structure it as bullets when it has multiple points. Respond with a single JSON object matching this JSON schema exactly: ${JSON.stringify(ENRICH_SCHEMA)}${contextBlock(context)}${cuisineBlock(cuisines)}`
+  `You are classifying a home cook's meal. From the photos (if any) and the note, extract the dish. Unless told otherwise, the first photo is the finished dish; any further photos are process shots taken while cooking, in order, possibly with the cook's captions — use them to identify techniques and ingredients. Be specific and honest: 'Singapore black pepper prawns' not 'seafood'. Use the cook's own vocabulary. \`cuisine\` is the broad national or regional cuisine ('Italian', 'Japanese', 'Middle Eastern'); put anything narrower ('Sicilian', 'Italian-American') in \`sub_region\`. Unknown values: empty string / empty array, never invented. Also rewrite the note as \`cleaned_note\`: fix dictation errors, restore punctuation, and structure it as bullets when it has multiple points. Respond with a single JSON object matching this JSON schema exactly: ${JSON.stringify(ENRICH_SCHEMA)}${contextBlock(context)}${cuisineBlock(cuisines)}`
 
 async function photoToBase64(supabase: Supabase, path: string): Promise<string | null> {
   const { data, error } = await supabase.storage.from(COOKS_BUCKET).download(path)
@@ -118,13 +129,34 @@ async function photoToBase64(supabase: Supabase, path: string): Promise<string |
   return Buffer.from(await data.arrayBuffer()).toString('base64')
 }
 
-type Image = { b64: string; caption: string }
+type Image = { b64: string; caption: string; timing: string }
 
-async function deepseekExtract(images: Image[], note: string, context: string, cuisines: string[]): Promise<EnrichResult> {
-  const captions = images
-    .map((img, i) => (img.caption ? `Photo ${i + 1} caption: ${img.caption}` : ''))
+const CHOOSE_MAIN =
+  'These photos are one cooking session in the order they were taken, and none is marked as the finished dish yet. ' +
+  'Decide which photo shows the finished, plated dish this cook is about — the others are process shots (raw ingredients, prep, pans on the stove). ' +
+  'Return its number as `main_photo` and how sure you are as `confidence.main_photo`. The plate is usually one of the last photos taken, ' +
+  "but trust what's in the pictures over the order. Base dish_name on that photo."
+
+async function deepseekExtract(
+  images: Image[],
+  note: string,
+  context: string,
+  cuisines: string[],
+  choosing: boolean,
+): Promise<EnrichResult> {
+  const lines = images
+    .map((img, i) => {
+      const bits = [choosing ? img.timing : '', img.caption ? `caption: ${img.caption}` : ''].filter(Boolean)
+      return bits.length ? `Photo ${i + 1} — ${bits.join(', ')}` : ''
+    })
     .filter(Boolean)
-  const text = [note ? `Note: ${note}` : 'No note — classify from the photos alone.', ...captions].join('\n')
+  const text = [
+    choosing ? CHOOSE_MAIN : '',
+    note ? `Note: ${note}` : 'No note — classify from the photos alone.',
+    ...lines,
+  ]
+    .filter(Boolean)
+    .join('\n')
   // JSON mode occasionally returns empty content (documented by DeepSeek);
   // one retry clears it. A second failure throws to the caller.
   for (let attempt = 1; ; attempt++) {
@@ -188,26 +220,40 @@ export async function knownCuisines(supabase: Supabase): Promise<string[]> {
   return [...new Set((data ?? []).map((d) => String(d.cuisine).trim()).filter(Boolean))]
 }
 
-// Downloads the photo (if any) and returns the raw parsed model output.
-// Throws on any failure — callers decide.
+export type Enrichment = {
+  extraction: EnrichResult
+  // The photos the model saw, in the order it saw them — main_photo indexes this.
+  sent: CookPhoto[]
+  choosing: boolean
+}
+
+// Downloads the photos (if any) and returns the raw parsed model output.
+// Imported cooks with several shots (cover_auto) also get their main photo
+// chosen. Throws on any failure — callers decide.
 export async function enrichCookWith(
   supabase: Supabase,
   user: { id: string },
   cook: CookRow,
-): Promise<EnrichResult> {
-  const photos = orderedPhotos(cook.photo).slice(0, MAX_IMAGES)
+): Promise<Enrichment> {
+  const choosing = Boolean(cook.cover_auto) && (cook.photo?.length ?? 0) > 1
+  const candidates = choosing
+    ? sampleForChoice(cook.photo ?? [], MAX_IMAGES_CHOOSING)
+    : orderedPhotos(cook.photo).slice(0, MAX_IMAGES)
   const [b64s, context, cuisines] = await Promise.all([
-    Promise.all(photos.map((p) => photoToBase64(supabase, p.storage_path))),
+    Promise.all(candidates.map((p) => photoToBase64(supabase, p.storage_path))),
     buildContext(supabase, user),
     knownCuisines(supabase),
   ])
   // A photo that fails to download is skipped, not fatal.
-  const images = photos.flatMap((p, i) => {
-    const b64 = b64s[i]
-    return b64 ? [{ b64, caption: (p.caption ?? '').trim() }] : []
-  })
+  const sent = candidates.filter((_, i) => b64s[i])
+  const images = sent.map((p, i) => ({
+    b64: b64s[candidates.indexOf(p)]!,
+    caption: (p.caption ?? '').trim(),
+    timing: choosing ? timingLabel(sent, i) : '', // sent is time-ordered when choosing
+  }))
   // Raw model output goes into extraction as-is — never trimmed or reshaped.
-  return deepseekExtract(images, cook.note_raw, context, cuisines)
+  const extraction = await deepseekExtract(images, cook.note_raw, context, cuisines, choosing)
+  return { extraction, sent, choosing }
 }
 
 // Dish match/insert + tags derivation + cook update. Throws on failure.
@@ -215,8 +261,18 @@ export async function writeEnrichment(
   supabase: Supabase,
   user: { id: string },
   cook: CookRow,
-  extraction: EnrichResult,
+  { extraction, sent, choosing }: Enrichment,
 ): Promise<void> {
+  // Before the label lands, so the card fills in with the right photo. The
+  // RPC is a no-op if the owner has picked a main photo by hand meanwhile.
+  if (choosing) {
+    const main = chooseMain(sent, extraction.main_photo, extraction.confidence?.main_photo)
+    if (main) {
+      const { error } = await supabase.rpc('auto_cover_photo', { p_cook_id: cook.id, p_storage_path: main.storage_path })
+      if (error) console.warn(`auto cover ${cook.id} failed`, error)
+    }
+  }
+
   const dishName = String(extraction.dish_name ?? '').trim()
   let dishId: string | null = null
   if (dishName) {
