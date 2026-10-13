@@ -20,26 +20,25 @@ export async function fetchItems(
   if (opts?.cuisine) query = query.eq('dish.cuisine', opts.cuisine)
   const { data: cooks } = await query.order('cooked_at', { ascending: false })
 
-  return Promise.all(
-    (cooks ?? []).map(async (c) => {
-      const photo = coverPhoto(c.photo)
-      let photoUrl: string | null = null
-      if (photo) {
-        const { data: signed } = await supabase.storage
-          .from(COOKS_BUCKET)
-          .createSignedUrl(photo.storage_path, SIGNED_URL_SECONDS)
-        photoUrl = signed?.signedUrl ?? null
-      }
-      return {
-        id: c.id,
-        cookedAt: c.cooked_at,
-        note: c.note_raw,
-        photoUrl,
-        tags: c.tags ?? [],
-        photoCount: c.photo?.length ?? 0,
-        enrichmentStatus: c.enrichment_status,
-        ...dishMeta(c.dish),
-      }
-    }),
-  )
+  const paths = (cooks ?? []).map((c) => coverPhoto(c.photo)?.storage_path).filter((p): p is string => !!p)
+  // One storage round trip for every photo, not one per cook.
+  const { data: signed } = paths.length
+    ? await supabase.storage.from(COOKS_BUCKET).createSignedUrls(paths, SIGNED_URL_SECONDS)
+    : { data: [] }
+  const urlFor = new Map((signed ?? []).map((s) => [s.path, s.signedUrl]))
+
+  return (cooks ?? []).map((c): FeedItem => {
+    const photoPath = coverPhoto(c.photo)?.storage_path ?? null
+    return {
+      id: c.id,
+      cookedAt: c.cooked_at,
+      note: c.note_raw,
+      photoUrl: photoPath ? (urlFor.get(photoPath) ?? null) : null,
+      photoPath,
+      tags: c.tags ?? [],
+      photoCount: c.photo?.length ?? 0,
+      enrichmentStatus: c.enrichment_status,
+      ...dishMeta(c.dish),
+    }
+  })
 }

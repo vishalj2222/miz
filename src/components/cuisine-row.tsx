@@ -12,6 +12,8 @@ export function CuisineRow({ items, viewId }: { items: FeedItem[]; viewId?: stri
       {cuisines.map(({ cuisine, count }) => (
         <Link
           key={cuisine}
+          // Prefetching renders every cuisine page on each feed load.
+          prefetch={false}
           href={`/cuisine/${encodeURIComponent(cuisine)}${viewId ? `?view=${viewId}` : ''}`}
           className="inline-flex min-h-11 items-center gap-2 border border-hairline px-3 font-mono text-[0.7rem] uppercase tracking-[0.14em] text-ink active:bg-hairline"
         >

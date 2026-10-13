@@ -9,35 +9,42 @@ import { CookCard } from './cook-card'
 import { CuisineRow } from './cuisine-row'
 import { coverPhoto, dishMeta, isIdentifying, type FeedItem } from '@/lib/feed'
 
-async function fetchFeed(ownerId: string): Promise<FeedItem[]> {
+// `known` holds URLs already on screen. Signed URLs differ on every signing,
+// so re-signing would make the phone download every photo again on each
+// refetch (and every 4s while polling). Only new photos get signed.
+async function fetchFeed(ownerId: string, known: FeedItem[] = []): Promise<FeedItem[]> {
   const supabase = createClient()
+  const knownUrl = new Map(known.filter((k) => k.photoPath && k.photoUrl).map((k) => [k.photoPath!, k.photoUrl!]))
   const { data } = await supabase
     .from('cook')
-    .select('id, cooked_at, created_at, note_raw, tags, enrichment_status, photo(storage_path, is_cover), dish(canonical_name, cuisine)')
+    .select(
+      'id, cooked_at, created_at, note_raw, tags, enrichment_status, photo(storage_path, is_cover), dish(canonical_name, cuisine)',
+    )
     .eq('owner_id', ownerId)
     .order('cooked_at', { ascending: false })
-  return Promise.all(
-    (data ?? []).map(async (c): Promise<FeedItem> => {
-      const photo = coverPhoto(c.photo)
-      let photoUrl: string | null = null
-      if (photo) {
-        const { data: signed } = await supabase.storage
-          .from(COOKS_BUCKET)
-          .createSignedUrl(photo.storage_path, 60 * 60 * 24 * 7)
-        photoUrl = signed?.signedUrl ?? null
-      }
-      return {
-        id: c.id,
-        cookedAt: c.cooked_at,
-        note: c.note_raw,
-        photoUrl,
-        tags: c.tags ?? [],
-        photoCount: c.photo?.length ?? 0,
-        enrichmentStatus: c.enrichment_status,
-        ...dishMeta(c.dish),
-      }
-    }),
-  )
+  const fresh = [
+    ...new Set(
+      (data ?? []).map((c) => coverPhoto(c.photo)?.storage_path).filter((p): p is string => !!p && !knownUrl.has(p)),
+    ),
+  ]
+  if (fresh.length) {
+    const { data: signed } = await supabase.storage.from(COOKS_BUCKET).createSignedUrls(fresh, 60 * 60 * 24 * 7)
+    for (const s of signed ?? []) if (s.path && s.signedUrl) knownUrl.set(s.path, s.signedUrl)
+  }
+  return (data ?? []).map((c): FeedItem => {
+    const photoPath = coverPhoto(c.photo)?.storage_path ?? null
+    return {
+      id: c.id,
+      cookedAt: c.cooked_at,
+      note: c.note_raw,
+      photoUrl: photoPath ? (knownUrl.get(photoPath) ?? null) : null,
+      photoPath,
+      tags: c.tags ?? [],
+      photoCount: c.photo?.length ?? 0,
+      enrichmentStatus: c.enrichment_status,
+      ...dishMeta(c.dish),
+    }
+  })
 }
 
 // Poll while a card is still being identified, so its label lands within
@@ -66,7 +73,7 @@ export function Feed({
   }, [])
   const { data: items } = useQuery({
     queryKey: key,
-    queryFn: () => fetchFeed(ownerId),
+    queryFn: () => fetchFeed(ownerId, queryClient.getQueryData<FeedItem[]>(key)),
     initialData: initialItems,
     refetchInterval: (query) => (isOwn ? pollInterval(query.state.data, pollUntil.current) : false),
   })
@@ -112,9 +119,7 @@ export function Feed({
             syncError={item.syncError}
             onDiscard={async (id) => {
               await db.pendingCooks.delete(id)
-              queryClient.setQueryData<FeedItem[]>(key, (old = []) =>
-                old.filter((f) => f.id !== id),
-              )
+              queryClient.setQueryData<FeedItem[]>(key, (old = []) => old.filter((f) => f.id !== id))
             }}
           />
         ))}

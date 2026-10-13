@@ -3,6 +3,9 @@ export interface FeedItem {
   cookedAt: string
   note: string
   photoUrl: string | null
+  // Storage path of photoUrl, so a refetch can reuse the signed URL (and the
+  // phone's cached image) instead of minting a new one.
+  photoPath?: string | null
   dishName?: string | null
   cuisine?: string | null
   tags?: string[]
